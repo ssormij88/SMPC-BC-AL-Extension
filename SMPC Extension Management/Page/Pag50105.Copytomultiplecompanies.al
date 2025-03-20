@@ -43,40 +43,24 @@ page 50105 "Copy to multiple companies"
         }
     }
 
-    /*     actions
-        {
-            area(Creation)
-            {
-                action("Copy to all companies")
-                {
-                    Promoted = true;
-                    PromotedCategory = Process;
-                    ApplicationArea = All;
-                    trigger OnAction()
-                    var
-                        ExperienceTierSetup1: Record "Experience Tier Setup";
-                        ExperienceTierSetup: Record "Experience Tier Setup";
-                        ApplicationAreaMgmt: Codeunit "Application Area Mgmt.";
-                    begin
-                        CopytoMultipleCompanies();
-                    end;
-                }
-            }
-        } */
     var
         SourceName: text[50];
         xLineNo: Integer;
         NumberOfCopies: Integer;
+        NewCompanyName: Text[30];
+        company: Record Company;
 
     procedure SetSourceName(NewSourceName: Text[30])
     begin
+        company.Reset();
+        company.SetRange(Name, NewSourceName);
         SourceName := NewSourceName;
     end;
 
     procedure CopytoMultipleCompanies()
     var
         i: Integer;
-        NewCompanyName: Text[30];
+
         ProgressWindow: Dialog;
         ProgressMsg: Label 'Creating new company %1.';
         CopySuccessMsg: Label 'Company %1 has been copied successfully.';
@@ -89,6 +73,9 @@ page 50105 "Copy to multiple companies"
         ExperienceTierSetup1: Record "Experience Tier Setup";
         ExperienceTierSetup: Record "Experience Tier Setup";
         ApplicationAreaMgmt: Codeunit "Application Area Mgmt.";
+        JobQueueManagement: Codeunit "Job Queue Management";
+        AssistedCompanySetupStatus: Record "Assisted Company Setup Status";
+        OriginalCompany, CopiedCompany : Record Company;
     begin
         Rec.SetFilter("User email", '<>%1', '');
         if Rec.FindSet() then begin
@@ -103,6 +90,8 @@ page 50105 "Copy to multiple companies"
 
             FeatureDataUpdateStatus1.Reset();
             FeatureDataUpdateStatus1.SetRange("Company Name", SourceName);
+
+
             repeat
                 if Rec."User email" <> '' then begin
                     NewCompanyName := Rec."User email";
@@ -142,10 +131,67 @@ page 50105 "Copy to multiple companies"
                             if FeatureDataUpdateStatus.Insert() then;
                         until FeatureDataUpdateStatus1.Next() = 0;
                     end;
+
+                    SetNewNameToNewCompanyInfo();
+                    JobQueueManagement.SetRecurringJobsOnHold(NewCompanyName);
+                    OnAfterCreatedNewCompanyByCopyCompany(NewCompanyName, company);
+                    RegisterUpgradeTags(NewCompanyName);
+                    if CopiedCompany.Get(NewCompanyName) then
+                        AssistedCompanySetupStatus.CopySaaSCompanySetupStatus(SourceName, CopiedCompany.Name);
+
+                    OnAfterCopyCompanyOnAction(NewCompanyName);
                 end;
             until Rec.Next() = 0;
             ProgressWindow.Close();
+
             Message(CopySuccessMsg, SourceName);
         end;
+    end;
+
+
+    local procedure RegisterUpgradeTags(NewCompanyName: Code[30])
+    var
+        UpgradeTag: codeunit "Upgrade Tag";
+    begin
+        UpgradeTag.CopyUpgradeTags(CopyStr(CompanyName(), 1, MaxStrLen(NewCompanyName)), NewCompanyName);
+    end;
+
+    local procedure SetNewNameToNewCompanyInfo()
+    var
+        CompanyInformation: Record "Company Information";
+        Company: Record Company;
+    begin
+        if Company.Get(NewCompanyName) then;
+        Company."Display Name" := NewCompanyName;
+
+        Company.Modify();
+
+        if CompanyInformation.ChangeCompany(NewCompanyName) then
+            if CompanyInformation.Get() then begin
+                CompanyInformation.Name := NewCompanyName;
+                CompanyInformation.Modify(true);
+            end;
+
+        OnAfterSetNewNameToNewCompanyInfo(NewCompanyName);
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterSetNewNameToNewCompanyInfo(NewCompanyName: Text[30])
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterCreatedNewCompanyByCopyCompany(NewCompanyName: Text[30]; Company: Record Company)
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnValidateNewCompanyName(var NewCompanyName: Text[30])
+    begin
+    end;
+
+    [IntegrationEvent(false, false)]
+    local procedure OnAfterCopyCompanyOnAction(CompanyName: Text[30])
+    begin
     end;
 }
